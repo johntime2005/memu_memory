@@ -3,7 +3,7 @@ name = "nekro-plugin-memu-memory"
 version = "1.0.0"
 description = "Nekro Plugin - memU.so 长期记忆能力插件，支持自动/主动回忆、多人设与UI可配置。"
 authors = ["johntime <dev@example.com>"]
-license = "LGPL-3.0-or-later"
+license = "AGPL-3.0-or-later"
 readme = "README.md"
 packages = [{ include = "memu_memory" }]
 repository = "https://github.com/KroMiose/nekro-agent"
