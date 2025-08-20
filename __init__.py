@@ -81,7 +81,14 @@ async def _initialize_client_if_needed() -> None:
 
 @plugin.mount_prompt_inject_method("relevant_memories_from_memu_so")
 async def inject_relevant_memories(_ctx: schemas.AgentCtx) -> str:
-    """动态检索与当前对话最相关的记忆并注入提示词"""
+    """自动回忆注入（Prompt Injection）
+
+    根据最近对话消息语境，调用 memu.so 检索相关记忆，并返回一段可直接拼接到系统提示的文本。
+    当未配置 API Key、`RECALL_TOP_K=0`、无可用历史或检索失败时返回空字符串，不影响对话正常生成。
+
+    Returns:
+        str: 以 "--- Relevant Memories Retrieved From Your Past ---" 开头的多行文本，每行以 "- " 列出一条记忆。
+    """
     await _initialize_client_if_needed()
 
     current_config = plugin.get_config(MemUConfig)
@@ -126,7 +133,24 @@ async def memorize_conversation(
     *args,
     **kwargs,
 ) -> str:
-    """Memorize Conversation (将一段对话或信息存入 memu.so 长期记忆)"""
+    """Memorize Conversation（写入长期记忆）
+
+    将一段对话或信息片段存入 memu.so 长期记忆库，用于后续自动或主动回忆。
+    典型用法：记录用户偏好、事实、关键事件、承诺事项等。支持通过 `agent_id/agent_name` 指定多人设。
+
+    Args:
+        _ctx (AgentCtx): 调用上下文（由系统注入）。
+        chat_key (str): 当前聊天会话唯一标识。
+        conversation (str): 需要被记住的文本内容。
+        agent_id (Optional[str]): 可选，当前助理人设的 ID；未提供时使用插件配置默认值。
+        agent_name (Optional[str]): 可选，当前助理人设的名称；未提供时使用插件配置默认值。
+
+    Returns:
+        str: 表示记忆任务执行结果的确认信息。
+
+    Example:
+        记忆对话(chat_key="session_123", conversation="用户最喜欢的颜色是蓝色。")
+    """
     await _initialize_client_if_needed()
     if not memu_client:
         raise ConnectionError(
@@ -156,7 +180,20 @@ async def memorize_conversation(
 
 @plugin.mount_sandbox_method(SandboxMethodType.TOOL, "回忆信息")
 async def recall_memory(_ctx: schemas.AgentCtx, query: str) -> str:
-    """Recall Memory (根据一个问题主动从长期记忆中检索信息)"""
+    """Recall Memory（主动回忆检索）
+
+    根据自然语言查询，在 memu.so 长期记忆库中检索最相关的信息条目并返回格式化文本。
+
+    Args:
+        _ctx (AgentCtx): 调用上下文（由系统注入）。
+        query (str): 要检索的问题或主题，例如："用户最喜欢的颜色是什么？"。
+
+    Returns:
+        str: 多行文本，每行一条相关记忆；若没有匹配，则返回“在记忆中没有找到相关信息”。
+
+    Example:
+        回忆信息(query="用户最喜欢的颜色")
+    """
     await _initialize_client_if_needed()
     if not memu_client:
         raise ConnectionError(
