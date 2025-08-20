@@ -1,112 +1,183 @@
-"""这是一个示例天气查询插件
+"""
+Nekro Plugin - memU.so 长期记忆（memu_memory）
 
-提供指定城市的天气查询功能。
-使用 wttr.in API 获取天气数据。
+为 NekroAgent 提供长期记忆能力：写入记忆、自动回忆提示注入、主动回忆检索。
+参考封装风格：Jerry-FaGe/nekro-plugin-anime-tts
 """
 
-from typing import Dict
+import logging
+from typing import Optional
 
-import httpx
-from nekro_agent.api.schemas import AgentCtx
-from nekro_agent.core import logger
-from nekro_agent.services.plugin.base import ConfigBase, NekroPlugin, SandboxMethodType
-from pydantic import Field
+from pydantic import Field, field_validator
 
-# TODO: 插件元信息，请修改为你的插件信息
+from nekro_agent.api import schemas
+from nekro_agent.api.plugin import ConfigBase, NekroPlugin, SandboxMethodType
+
+try:
+    from memu import MemuClient
+except ImportError as e:
+    raise ImportError("缺少依赖 memu-py，请先安装：pip install --upgrade memu-py") from e
+
+
 plugin = NekroPlugin(
-    name="天气查询插件",  # TODO: 插件名称
-    module_name="weather",  # TODO: 插件模块名 (如果要发布该插件，需要在 NekroAI 社区中唯一)
-    description="提供指定城市的天气查询功能",  # TODO: 插件描述
-    version="1.0.0",  # TODO: 插件版本
-    author="KroMiose",  # TODO: 插件作者
-    url="https://github.com/KroMiose/nekro-plugin-template",  # TODO: 插件仓库地址
+    name="智能记忆插件 (memU.so)",
+    module_name="memu_memory",
+    description="通过 memU.so 官方 API 提供长期记忆能力，支持多人设和自动回忆。",
+    version="1.0.0",
+    author="johntime",
+    url="https://github.com/KroMiose/nekro-agent",
 )
 
+logger = logging.getLogger(__name__)
 
-# TODO: 插件配置，根据需要修改
+
 @plugin.mount_config()
-class WeatherConfig(ConfigBase):
-    """天气查询配置"""
+class MemUConfig(ConfigBase):
+    """memU.so 插件配置"""
 
-    API_URL: str = Field(
-        default="https://wttr.in/",
-        title="天气API地址",
-        description="天气查询API的基础URL",
+    MEMU_API_KEY: str = Field(default="", title="memU.so API Key")
+    BASE_URL: str = Field(default="https://api.memu.so", title="memU.so API 地址")
+    AGENT_ID: str = Field(default="nekro_agent", title="默认助理ID")
+    AGENT_NAME: str = Field(default="Nekro Assistant", title="默认助理名称")
+    RECALL_TOP_K: int = Field(
+        default=3,
+        title="自动回忆数量",
+        description="每次对话时，自动从记忆库中检索并注入到提示词中的最相关记忆的数量。设为 0 可禁用此功能。",
     )
-    TIMEOUT: int = Field(
-        default=10,
-        title="请求超时时间",
-        description="API请求的超时时间(秒)",
-    )
+
+    @field_validator("MEMU_API_KEY", mode="before")
+    @classmethod
+    def _validate_api_key(cls, v):
+        if v is None:
+            return ""
+        return v
 
 
-# 获取配置实例
-config: WeatherConfig = plugin.get_config(WeatherConfig)
+config = plugin.get_config(MemUConfig)
+memu_client: Optional[MemuClient] = None
 
 
-@plugin.mount_sandbox_method(SandboxMethodType.AGENT, name="查询天气", description="查询指定城市的实时天气信息")
-async def query_weather(_ctx: AgentCtx, city: str) -> str:
-    """查询指定城市的实时天气信息。
+async def _initialize_client_if_needed() -> None:
+    """如果客户端未初始化，则进行初始化"""
+    global memu_client
+    if memu_client is not None:
+        return
 
-    Args:
-        city: 需要查询天气的城市名称，例如 "北京", "London"。
+    current_config = plugin.get_config(MemUConfig)
+    if not current_config.MEMU_API_KEY:
+        logger.error("MemU API Key 未在插件配置中设置。请在插件设置页面输入您的 API Key。")
+        return
 
-    Returns:
-        str: 包含城市实时天气信息的字符串。查询失败时返回错误信息。
-
-    Example:
-        查询北京的天气:
-        query_weather(city="北京")
-        查询伦敦的天气:
-        query_weather(city="London")
-    """
+    logger.info("首次调用，开始初始化 MemUClient...")
     try:
-        async with httpx.AsyncClient(timeout=config.TIMEOUT) as client:
-            response = await client.get(f"{config.API_URL}{city}?format=j1")
-            response.raise_for_status()
-            data: Dict = response.json()
-
-        # 提取需要的天气信息
-        # wttr.in 的 JSON 结构可能包含 current_condition 列表
-        if not data.get("current_condition"):
-            logger.warning(f"城市 '{city}' 的天气数据格式不符合预期，缺少 'current_condition'")
-            return f"未能获取到城市 '{city}' 的有效天气数据，请检查城市名称是否正确。"
-
-        # 处理获取到的天气数据
-        current_condition = data["current_condition"][0]
-        temp_c = current_condition.get("temp_C")
-        feels_like_c = current_condition.get("FeelsLikeC")
-        humidity = current_condition.get("humidity")
-        weather_desc_list = current_condition.get("weatherDesc", [])
-        weather_desc = weather_desc_list[0].get("value") if weather_desc_list else "未知"
-        wind_speed_kmph = current_condition.get("windspeedKmph")
-        wind_dir = current_condition.get("winddir16Point")
-        visibility = current_condition.get("visibility")
-        pressure = current_condition.get("pressure")
-
-        # 格式化返回结果
-        result = (
-            f"城市: {city}\n"
-            f"天气状况: {weather_desc}\n"
-            f"温度: {temp_c}°C\n"
-            f"体感温度: {feels_like_c}°C\n"
-            f"湿度: {humidity}%\n"
-            f"风向: {wind_dir}\n"
-            f"风速: {wind_speed_kmph} km/h\n"
-            f"能见度: {visibility} km\n"
-            f"气压: {pressure} hPa"
+        memu_client = MemuClient(
+            base_url=current_config.BASE_URL,
+            api_key=current_config.MEMU_API_KEY,
         )
-        logger.info(f"已查询到城市 '{city}' 的天气")
+        logger.info("MemUClient (memu.so) 初始化成功。")
     except Exception as e:
-        # 捕获其他所有未知异常
-        logger.exception(f"查询城市 '{city}' 天气时发生未知错误: {e}")
-        return f"查询 '{city}' 天气时发生内部错误。"
-    else:
-        return result
+        logger.error(f"MemUClient 初始化失败: {e}", exc_info=True)
 
 
-@plugin.mount_cleanup_method()
-async def clean_up():
-    """清理插件资源"""
-    # 如果有使用数据库连接、文件句柄或其他需要释放的资源，在此处添加清理逻辑
-    logger.info("天气查询插件资源已清理。")
+@plugin.mount_prompt_inject_method("relevant_memories_from_memu_so")
+async def inject_relevant_memories(_ctx: schemas.AgentCtx) -> str:
+    """动态检索与当前对话最相关的记忆并注入提示词"""
+    await _initialize_client_if_needed()
+
+    current_config = plugin.get_config(MemUConfig)
+    if not memu_client or current_config.RECALL_TOP_K == 0:
+        return ""
+
+    try:
+        recent_history = [f"{msg.role}: {msg.content}" for msg in _ctx.message_history[-4:]]
+        query_text = "\n".join(recent_history)
+        if not query_text:
+            return ""
+
+        retrieved_response = memu_client.retrieve_related_memory_items(
+            query=query_text,
+            user_id=_ctx.from_chat_key,
+            top_k=current_config.RECALL_TOP_K,
+        )
+
+        if not retrieved_response or not retrieved_response.related_memories:
+            return ""
+
+        prompt_lines = ["--- Relevant Memories Retrieved From Your Past ---"]
+        for memory_item in retrieved_response.related_memories:
+            prompt_lines.append(f"- {memory_item.memory.content}")
+
+        logger.info(
+            f"成功为 User '{_ctx.channel_name}' 注入了 {len(retrieved_response.related_memories)} 条相关记忆。"
+        )
+        return "\n".join(prompt_lines)
+    except Exception as e:
+        logger.warning(f"自动检索记忆时出错: {e}")
+        return ""
+
+
+@plugin.mount_sandbox_method(SandboxMethodType.BEHAVIOR, "记忆对话")
+async def memorize_conversation(
+    _ctx: schemas.AgentCtx,
+    chat_key: str,
+    conversation: str,
+    agent_id: Optional[str] = None,
+    agent_name: Optional[str] = None,
+    *args,
+    **kwargs,
+) -> str:
+    """Memorize Conversation (将一段对话或信息存入 memu.so 长期记忆)"""
+    await _initialize_client_if_needed()
+    if not memu_client:
+        raise ConnectionError(
+            "memu.so client is not initialized or failed to initialize. Please check the plugin configuration."
+        )
+
+    try:
+        current_config = plugin.get_config(MemUConfig)
+        final_agent_id = agent_id if agent_id is not None else current_config.AGENT_ID
+        final_agent_name = agent_name if agent_name is not None else current_config.AGENT_NAME
+        structured_conversation = [{"role": "user", "content": conversation}]
+
+        memo_response = memu_client.memorize_conversation(
+            conversation=structured_conversation,
+            user_id=_ctx.from_chat_key,
+            user_name=_ctx.channel_name,
+            agent_id=final_agent_id,
+            agent_name=final_agent_name,
+        )
+
+        logger.info(f"已成功提交记忆任务到 memu.so，Task ID: {memo_response.task_id}。")
+        return f"✅ {final_agent_name} 已经收到指令，会把内容记下来的！"
+    except Exception as e:
+        logger.error(f"调用 memU.so 记忆服务时出错: {e}", exc_info=True)
+        raise RuntimeError(f"Failed to memorize conversation: {type(e).__name__}: {e}")
+
+
+@plugin.mount_sandbox_method(SandboxMethodType.TOOL, "回忆信息")
+async def recall_memory(_ctx: schemas.AgentCtx, query: str) -> str:
+    """Recall Memory (根据一个问题主动从长期记忆中检索信息)"""
+    await _initialize_client_if_needed()
+    if not memu_client:
+        raise ConnectionError(
+            "memu.so client is not initialized or failed to initialize. Please check the plugin configuration."
+        )
+    try:
+        retrieved_response = memu_client.retrieve_related_memory_items(
+            query=query, user_id=_ctx.from_chat_key, top_k=3
+        )
+
+        if not retrieved_response or not retrieved_response.related_memories:
+            return "（在记忆中没有找到相关信息。）"
+
+        response_text = "根据我的回忆，以下是与您问题最相关的信息：\n"
+        for i, memory_item in enumerate(retrieved_response.related_memories):
+            response_text += f"{i + 1}. {memory_item.memory.content}\n"
+        return response_text
+    except Exception as e:
+        logger.error(f"主动检索记忆时出错: {e}", exc_info=True)
+        raise RuntimeError(f"Failed to recall memory: {type(e).__name__}: {e}")
+
+
+__all__ = ["plugin"]
+

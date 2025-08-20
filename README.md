@@ -1,101 +1,56 @@
-# NekroAgent 插件模板
+# Nekro Plugin - memU.so 长期记忆（memu_memory）
 
-> 一个帮助开发者快速创建 NekroAgent 插件的模板仓库。
+一个为 NekroAgent 设计的长期记忆插件，集成 memU.so 官方云服务，为 AI 代理提供稳定的“记忆-回忆”能力。
 
-## 🚀 快速开始
+## ✨ 功能特性
 
-### 1. 使用模板创建仓库
+- 自动回忆注入：在回复前自动检索最近对话的相关记忆，拼接为提示词注入。
+- 主动回忆工具：提供可调用的工具函数，基于语义搜索主动回忆历史信息。
+- 写入长期记忆：将重要事实与偏好写入长期记忆库，支持多人设（agent）调用。
+- 可视化配置：在 NekroAgent 的插件设置页面配置 API Key、服务地址及回忆数量。
 
-1. 点击本仓库页面上的 "Use this template" 按钮
-2. 输入你的插件仓库名称，推荐命名格式：`nekro-plugin-[你的插件包名]`
-3. 选择公开或私有仓库
-4. 点击 "Create repository from template" 创建你的插件仓库
+## 🚀 安装
 
-### 2. 克隆你的插件仓库
-
-```bash
-git clone https://github.com/你的用户名/你的插件仓库名.git
-cd 你的插件仓库名
+```powershell
+pip install -e .
 ```
 
-### 3. 安装依赖
+## ⚙️ 配置项
 
-```bash
-# 安装 poetry 包管理工具
-pip install poetry
+- MEMU_API_KEY：memu.so 的 API Key（必填）
+- BASE_URL：memu.so API 地址（默认 https://api.memu.so）
+- AGENT_ID：默认助理 ID
+- AGENT_NAME：默认助理名称
+- RECALL_TOP_K：自动回忆条目数（0 关闭自动回忆）
 
-# 设置虚拟环境目录在项目下
-poetry config virtualenvs.in-project true
+## 🧩 接口一览
 
-# 安装所有依赖
-poetry install
+- 提示注入：`relevant_memories_from_memu_so`
+- 工具（行为）：`记忆对话`
+- 工具（Tool）：`回忆信息`
+
+## 🏗️ 结构
+
+```
+memu_memory/
+  └── __init__.py
+pyproject.toml
+README.md
 ```
 
-## 📝 插件开发指南
+## 📦 依赖声明
 
-### 插件结构
+依赖在 `pyproject.toml` 中声明，安装插件时会自动安装：
 
-一个标准的 NekroAgent 插件需要在 `__init__.py` 中提供一个 `plugin` 实例，这是插件的核心，用于注册插件功能和配置。
-
-```python
-# 示例插件结构
-plugin = NekroPlugin(
-    name="你的插件名称",  # 插件显示名称
-    module_name="plugin_module_name",  # 插件模块名 (在NekroAI社区需唯一)
-    description="插件描述",  # 插件功能简介
-    version="1.0.0",  # 插件版本
-    author="你的名字",  # 作者信息
-    url="https://github.com/你的用户名/你的插件仓库名",  # 插件仓库链接
-)
+```toml
+[tool.poetry.dependencies]
+python = ">=3.10,<3.13"
+nekro-agent = "*"
+memu-py = "*"
+pydantic = ">=2.3"
 ```
 
-### 开发功能
+## 🔗 参考
 
-1. **配置插件参数**：使用 `@plugin.mount_config()` 装饰器创建可配置参数
-
-```python
-@plugin.mount_config()
-class MyPluginConfig(ConfigBase):
-    """插件配置说明"""
-    
-    API_KEY: str = Field(
-        default="",
-        title="API密钥",
-        description="第三方服务的API密钥",
-    )
-```
-
-2. **添加沙盒方法**：使用 `@plugin.mount_sandbox_method()` 添加AI可调用的函数
-
-```python
-@plugin.mount_sandbox_method(SandboxMethodType.AGENT, name="函数名称", description="函数功能描述")
-async def my_function(_ctx: AgentCtx, param1: str) -> str:
-    """实现插件功能的具体逻辑"""
-    return f"处理结果: {param1}"
-```
-
-3. **资源清理**：使用 `@plugin.mount_cleanup_method()` 添加资源清理函数
-
-```python
-@plugin.mount_cleanup_method()
-async def clean_up():
-    """清理资源，如数据库连接等"""
-    logger.info("资源已清理")
-```
-
-## 📦 插件发布
-
-完成开发后，你可以：
-
-1. 提交到 GitHub 仓库
-2. 发布到 NekroAI 云社区共享给所有用户
-
-## 🔍 更多资源
-
-- [NekroAgent 官方文档](https://doc.nekro.ai/)
-- [插件开发详细指南](https://doc.nekro.ai/docs/04_plugin_dev/intro.html)
-- [社区交流群](https://qm.qq.com/q/hJlRwD17Ae)：636925153
-
-## 📄 许可证
-
-MIT
+- Nekro 快速上手：https://doc.nekro.ai/docs/04_plugin_dev/01_quick_start.html
+- 参考实现（TTS 插件）：https://github.com/Jerry-FaGe/nekro-plugin-anime-tts
